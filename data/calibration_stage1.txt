@@ -1,0 +1,14 @@
+weeks available: 87
+trailing-52wk revenue: Rs 122.7 Cr   (target ~120 at full 104 weeks)
+paid spend trailing-52wk: Rs 30.5 Cr   (target ~34)
+marketing % of revenue: 24.9%   (target ~28%)
+spend shares: {'Meta': 0.267, 'Google_Search': 0.148, 'YouTube': 0.115, 'QC_Ads': 0.249, 'Influencers': 0.093, 'Trade_Promo': 0.128}
+QC ad spend as % of assumed QC sales (45% of revenue): 13.8%  (benchmark: up to 15%)
+Meta-YouTube spend corr, wks 20-49: 0.85  (target ~0.8)
+Meta-YouTube spend corr, other wks: 0.38
+seasonality (detrended revenue vs overall mean): summer Apr-Jun +13%, festive Oct-Nov -3%, monsoon Jul-Sep -5%
+web-facing paid spend / new customers (CAC proxy): Rs 1,012  (benchmark 800-1,200, low confidence)
+ledger: 52,049 orders, 21,789 customers (target 70-90k orders, 25-35k customers); mean gross value Rs 627 (target 600-700)
+90-day repeat rate by channel: {'Google_Search': 0.335, 'Influencers': 0.419, 'Meta': 0.306, 'Organic': 0.398, 'Trade_Promo': 0.225, 'YouTube': 0.399}
+platform-claimed revenue / actual revenue: 0.66x   (brief's example: 1.6x)
+platform ROAS by channel: {'Google_Search': 3.15, 'Influencers': 1.06, 'Meta': 3.03, 'QC_Ads': 4.4, 'YouTube': 1.4}
