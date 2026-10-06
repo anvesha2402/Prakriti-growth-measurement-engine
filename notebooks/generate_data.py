@@ -107,7 +107,7 @@ def response(spend, T, ref):
 
 def build(seed, stage, design):
     ss = np.random.SeedSequence(seed)
-    rt, re_, rs, rn, rc, rp, ri, rx = [np.random.default_rng(s) for s in ss.spawn(8)]
+    rt, re_, rs, rn, rc, rp, ri, rx, rb = [np.random.default_rng(s) for s in ss.spawn(9)]
     T = draw_truth(rt)
     t = np.arange(1, NW + 1)
     dates = [START + dt.timedelta(weeks=int(i - 1)) for i in t]
@@ -168,8 +168,10 @@ def build(seed, stage, design):
             sp[0, GEOS.index(g), w0 - 1:w1] = 0.0
     f = response(sp, T, ref)
     incr = beta[:, None, None] * f                               # c,g,t true incremental revenue
+    incr_np = beta[:, None, None] * fb                           # same, with NO pause (counterfactual)
     eps = rn.normal(0, 1, (8, NW)) * np.array(T["sigma_geo"])[:, None]
     y = (B + incr.sum(0)) * np.exp(eps)                          # g,t revenue (lakh)
+    y_np = (B + incr_np.sum(0)) * np.exp(eps)
     meas = np.exp(rn.normal(0, .05, (6, 8, NW)))
     spend_obs = sp * meas
 
@@ -196,11 +198,12 @@ def build(seed, stage, design):
         inc_n = incr[c].sum(0)
         rep = T["platform_multiple"][c] * inc_n * np.exp(rp.normal(0, .10, NW))
         sp_n = sp[c].sum(0)
+        nz = np.concatenate([rp.normal(0, .08, 87), rb.normal(0, .08, NW - 87)])
         cpm = [160, 0, 110, 0, 250][c]; ctr = [.011, .045, .004, .018, .008][c]; cpc = [0, 14, 0, 9, 0][c]
         for i in range(tend):
             rs_ = sp_n[i] * 1e5
             imp = rs_ / cpm * 1000 if cpm else rs_ / (cpc * ctr)
-            imp *= float(np.exp(rp.normal(0, .08)))
+            imp *= float(np.exp(nz[i]))
             clicks = imp * ctr
             conv = rep[i] * 1e5 / AOV
             rows.append({"week": i + 1, "channel": CH[c], "spend_lakh": round(float(sp_n[i]), 3),
@@ -212,60 +215,81 @@ def build(seed, stage, design):
     platform = pd.DataFrame(rows)
 
     # ---- customers & orders (website ledger extract) ----
-    fs = 28000 / newc.sum()
-    n_s = rc.binomial(newc, fs)
-    wts = np.stack([incr[0], incr[1], incr[2], incr[4], np.maximum(incr[5], 0), B], 0)
-    pr = wts / wts.sum(0)
-    cust = []
-    for g in range(8):
-        for i in range(NW):
-            n = n_s[g, i]
-            if n:
-                ch = rc.choice(6, n, p=pr[:, g, i])
-                for k in range(n):
-                    cust.append((g, i, ch[k]))
-    cg = np.array([a for a, _, _ in cust]); cw = np.array([b for _, b, _ in cust]); cc = np.array([c for _, _, c in cust])
-    t0 = cw + rc.random(len(cw))
-    ordl = []
-    for ci, a in enumerate(ACQ):
-        idx = np.where(cc == ci)[0]
-        n = len(idx)
-        if n == 0:
-            continue
-        P = T["clv"][a]
-        lam = rc.gamma(P["r"], 1 / P["alpha"], n)
-        p = rc.beta(P["p_mean"] * 4, (1 - P["p_mean"]) * 4, n)
-        cur = t0[idx].copy()
-        alive = rc.random(n) > p
-        ordl.append((idx, cur.copy(), np.ones(n, bool)))
-        for _ in range(80):
-            cur = cur + rc.exponential(1 / lam)
-            ok = alive & (cur < NW)
-            if ok.any():
-                ordl.append((idx[ok], cur[ok], np.zeros(ok.sum(), bool)))
-            alive = ok & (rc.random(n) > p)
-            if not alive.any():
-                break
-    cid = np.array(["C%06d" % (i + 1) for i in range(len(cg))])
-    first_date = [START + dt.timedelta(days=int(v * 7)) for v in t0]
-    keep_c = (cw + 1) <= tend
-    customers = pd.DataFrame({"customer_id": cid, "first_order_date": first_date,
-                              "acquisition_channel": [ACQ[i] for i in cc], "geo": [GEOS[i] for i in cg],
-                              "acquisition_week": cw + 1})[keep_c]
-    oi = np.concatenate([a for a, _, _ in ordl]); ot = np.concatenate([b for _, b, _ in ordl])
-    ofirst = np.concatenate([c for _, _, c in ordl])
-    o_ch = cc[oi]
-    mult = np.array([T["clv"][ACQ[k]]["aov_mult"] for k in o_ch])
-    gross = AOV * mult * np.exp(rc.normal(0, .3, len(oi)) - .045)
-    trade_first = (o_ch == 4) & ofirst
-    disc = np.where(trade_first, rc.uniform(.15, .25, len(oi)), np.where(rc.random(len(oi)) < .3, .05, 0)) * gross
-    cm = np.clip(T["cm_rate"] + rc.normal(0, .02, len(oi)), .3, .5)
-    orders = pd.DataFrame({"customer_id": cid[oi],
-                           "date": [START + dt.timedelta(days=int(v * 7)) for v in ot],
-                           "gross_value": gross.round(2), "discount": disc.round(2),
-                           "contribution": (cm * (gross - disc)).round(2),
-                           "_t": ot})
-    orders = orders[orders["_t"] < tend].sort_values("_t").drop(columns="_t")
+    def sim_ledger(rng, newc_arr, fs, incr_arr, id_start):
+        n_s = rng.binomial(newc_arr, fs)
+        wts = np.stack([incr_arr[0], incr_arr[1], incr_arr[2], incr_arr[4], np.maximum(incr_arr[5], 0), B], 0)
+        pr = wts / wts.sum(0)
+        cust = []
+        for g in range(8):
+            for i in range(NW):
+                n = n_s[g, i]
+                if n:
+                    ch = rng.choice(6, n, p=pr[:, g, i])
+                    for k in range(n):
+                        cust.append((g, i, ch[k]))
+        cg = np.array([a_ for a_, _, _ in cust], int); cw = np.array([b_ for _, b_, _ in cust], int)
+        cc = np.array([c_ for _, _, c_ in cust], int)
+        t0 = cw + rng.random(len(cw))
+        ordl = []
+        for ci, a_ in enumerate(ACQ):
+            idx = np.where(cc == ci)[0]
+            n = len(idx)
+            if n == 0:
+                continue
+            P = T["clv"][a_]
+            lam = rng.gamma(P["r"], 1 / P["alpha"], n)
+            p = rng.beta(P["p_mean"] * 4, (1 - P["p_mean"]) * 4, n)
+            cur = t0[idx].copy()
+            alive = rng.random(n) > p
+            ordl.append((idx, cur.copy(), np.ones(n, bool)))
+            for _ in range(80):
+                cur = cur + rng.exponential(1 / lam)
+                ok = alive & (cur < NW)
+                if ok.any():
+                    ordl.append((idx[ok], cur[ok], np.zeros(ok.sum(), bool)))
+                alive = ok & (rng.random(n) > p)
+                if not alive.any():
+                    break
+        cid = np.array(["C%06d" % (id_start + i + 1) for i in range(len(cg))])
+        oi = np.concatenate([a_ for a_, _, _ in ordl]); ot = np.concatenate([b_ for _, b_, _ in ordl])
+        ofirst = np.concatenate([c_ for _, _, c_ in ordl])
+        o_ch = cc[oi]
+        mult = np.array([T["clv"][ACQ[k]]["aov_mult"] for k in o_ch])
+        gross = AOV * mult * np.exp(rng.normal(0, .3, len(oi)) - .045)
+        trade_first = (o_ch == 4) & ofirst
+        disc = np.where(trade_first, rng.uniform(.15, .25, len(oi)), np.where(rng.random(len(oi)) < .3, .05, 0)) * gross
+        cm = np.clip(T["cm_rate"] + rng.normal(0, .02, len(oi)), .3, .5)
+        cdf = pd.DataFrame({"customer_id": cid,
+                            "first_order_date": [START + dt.timedelta(days=int(v * 7)) for v in t0],
+                            "acquisition_channel": [ACQ[i] for i in cc], "geo": [GEOS[i] for i in cg],
+                            "acquisition_week": cw + 1})
+        odf = pd.DataFrame({"customer_id": cid[oi],
+                            "date": [START + dt.timedelta(days=int(v * 7)) for v in ot],
+                            "gross_value": gross.round(2), "discount": disc.round(2),
+                            "contribution": (cm * (gross - disc)).round(2), "_t": ot})
+        return cdf, odf
+
+    newc_np = np.round(y_np * 1e5 * .20 / AOV * .60).astype(int)
+    fs = 28000 / newc_np.sum()
+    # Part A: customers acquired in weeks 1-87 come from the NO-PAUSE simulation (repeat buying does not depend on ad spend),
+    # so stage-1 and stage-2 ledgers agree exactly on weeks 1-87.
+    cdfA, odfA = sim_ledger(rc, newc_np, fs, incr_np, 0)
+    nA = int(cdfA.customer_id.str[1:].astype(int).max())
+    cdfA = cdfA[cdfA.acquisition_week <= 87]
+    odfA = odfA[odfA.customer_id.isin(set(cdfA.customer_id))]
+    if tend > 87:
+        # Part B: customers acquired in weeks 88+ come from the actual (paused) scenario, separate random stream
+        nb = newc.copy(); nb[:, :87] = 0
+        cdfB, odfB = sim_ledger(rb, nb, fs, incr, nA)
+        cdfB = cdfB[cdfB.acquisition_week <= tend]
+        customers = pd.concat([cdfA, cdfB], ignore_index=True)
+        o1 = odfA[odfA["_t"] < 87].sort_values("_t")
+        o2 = pd.concat([odfA[odfA["_t"] >= 87], odfB[odfB["_t"] < tend]]).sort_values("_t")
+        orders = pd.concat([o1, o2], ignore_index=True)
+    else:
+        customers = cdfA
+        orders = odfA[odfA["_t"] < tend].sort_values("_t")
+    orders = orders.drop(columns="_t")
     orders.insert(0, "order_id", ["O%06d" % (i + 1) for i in range(len(orders))])
     customers = customers[customers.customer_id.isin(set(orders.customer_id))]
 

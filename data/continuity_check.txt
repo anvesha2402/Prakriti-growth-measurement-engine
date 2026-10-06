@@ -1,0 +1,13 @@
+weekly_geo: stage-1 rows 696, stage-2 rows 832 (expected 696 and 832)
+weekly_geo weeks 1-87 identical to stage 1: True
+platform_reported weeks 1-87 identical: True
+customers: stage-1 21,789, stage-2 27,865; all stage-1 customers present with identical attributes: True
+orders: stage-1 52,049, stage-2 70,619; stage-1 orders reproduced exactly: True
+orders in weeks 1-87 of stage 2: 52,049
+influencers identical: True
+truth hash unchanged: True
+Meta spend weeks 88-95, treated geos (Ahmedabad, Pune): 0.0 lakh; control geos: 136.4 lakh
+Meta spend in treated geos weeks 80-87 (mean/week, lakh): 3.22
+weeks present: 1-104
+ledger totals (full 104 weeks): 70,619 orders, 27,865 customers (target 70-90k orders, 25-35k customers)
+cro_sessions: 112,000 rows, variants {'one_page': 56182, 'three_step': 55818}
