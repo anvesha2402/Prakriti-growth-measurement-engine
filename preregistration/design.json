@@ -1,0 +1,27 @@
+{
+  "channel": "Meta",
+  "treated_geos": [
+    "Ahmedabad",
+    "Pune"
+  ],
+  "control_geos": [
+    "Bengaluru",
+    "Chennai",
+    "Delhi NCR",
+    "Hyderabad",
+    "Kolkata",
+    "Mumbai"
+  ],
+  "weeks": [
+    88,
+    95
+  ],
+  "pre_period": [
+    36,
+    87
+  ],
+  "primary_estimator": "DiD on log revenue",
+  "secondary_estimator": "synthetic control",
+  "alpha": 0.05,
+  "mde_pct_conservative": 7.0
+}
